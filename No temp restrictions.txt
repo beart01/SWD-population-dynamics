@@ -1,0 +1,453 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Feb 26 11:08:10 2025
+
+@author: jm59115
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import math as math
+import time
+from datetime import datetime
+
+start_time = time.time() # starts a timer to calculate computation time.
+
+df = pd.read_excel(r'<File path>\Temp profiles JM 2025-2-11.xlsx', sheet_name = 'Daily 15-17')
+df.columns = ['Date', 'MaxF', 'MinF', 'AvgF', 'MaxC', 'MinC', 'AvgC']
+''' these lines of code extract daily max, min, and other stuff from an excel spreadsheet, into a dataframe. ''' 
+
+temp_dates = df['Date'].values
+max_temps = np.array(df['MaxC'].values) # casts daily max temps to an array
+min_temps = np.array(df['MinC'].values) # casts daily min temps to an array
+avg_temps = np.array(df['AvgC'].values) # casts daily avg temps to an array
+
+catch = pd.read_excel(r'<File path>\avg catch data by date 2015-2018.xlsx', sheet_name = 'AVG_GRAPHS')
+catch.columns = ['Date', 'Freq', 'avg', 'error', 'lower', 'upper']
+# these lines of code extract average catch data over all habitat types for each sample day from an excel file and
+# generates a dataframe, 'catch', to store the data.
+
+catch_dates = np.array(catch['Date'].values) # casts the 'date' column of the catch dataframe to a list.
+avg = np.array(catch['avg'].values) # casts the average trap counts to an array
+log_catch = np.log(avg) 
+
+years = []
+day_of_year = []
+for i in range(len(df['Date'])): # This code extracts the day of the year from date info in df['Date].
+    year = df['Date'][i].year
+    month = df['Date'][i].month
+    day = df['Date'][i].day
+    dayof_year = datetime(year, month, day).timetuple().tm_yday
+    day_of_year.append(dayof_year)
+    years.append(year)
+
+unique_yrs = [] # Indecies are synchronized with 'centers', the list of 50% fruit
+[unique_yrs.append(x) for x in years if x not in unique_yrs]
+
+first_2015 = years.index(2015) # Locates index of the first date in 2015 in the dataset.
+first_2018 = years.index(2018) # Locates index of the first date in 2018 in the dataset.
+
+df_fruit = pd.read_excel(r'<File path>\Phenology.data.23.24 JM 2025-6-16.xlsx', sheet_name = 'Alapaha temps')
+# The previsous line of code reads temps from Tifton, GA in 2023 and 2024 for use in estimating average dds (base 10C)
+# to 50% fruit for southern highbush and rabbiteye blueberries.
+
+# These lines of code set up constants, or initiate lists to calculate estimated average dds (base 10C) 
+# to 50% fruit for southern highbush and rabbiteye blueberries, and the distribution of the season.
+yrs = [23, 24]
+degree_days = [[] for x in yrs]
+cumulative_dds= [[] for x in yrs]
+eggs2adults = []
+eggses2adults = []
+neweggs = []
+flower_peak = [[62, 67], [48.88, 59.33]]
+fruit_peak = [[144.17, 154.00], [116.69, 119.91]]
+colors = ['royalblue', 'darkorange']
+dds_peak_flower= [[] for x in flower_peak]
+dds_peak_fruit = [[] for x in flower_peak]
+species = ['Rabbiteye', 'Southern highbush']
+avg_dds_peak_fruit = []
+centers = [[] for x in species] # Lists of dds for 50% fruit in each year of 'unique_yrs'; indeces of inner lists are synchronized
+seasonal_dds = []
+rabbiteye_centers = []
+s_highbush_centers = []
+unadjusted_hosts = []
+relative_hosts = []
+host_change = []
+
+
+# These next lines of code set up constants, or initialize vectors such as 'initial_cohort_size', 'pop_vector',
+# and 'vector_dds', that are accessable to various functions, or will be used to track cohort progression.
+pop_vector = np.tile(500, 10) # (number, reps)
+initial_cohort_size = np.array(pop_vector)
+vector_dds = np.arange(200, 600, 40, dtype = int) # (starting value, ending value, increments)
+labels = ['eggs', 'larvae', 'pupae', 'adults']
+structured_pop = [[] for x in labels]
+total_pop = []
+log_total = []
+pop_proportions = []
+
+dd_death = 610
+t_low = 7.2 # 7.2 from Wiman
+t_high = 30 # 30 from Wiman
+
+egg_dds = 20.7
+larvae_dds = 118
+pupae_dds = 199.9
+repro_dds = 210
+rate = 0.001503 # b, in Wiman
+shape = 0.005304 # a, in Wiman
+cauchy_scale = 45 # Is the half-width at half-maximum of the Cauchy distribution
+cauchy_loc = 410 # Is the center of the Cauchy distribution: 410 in Wiman et al. (2014)
+cauchy_constant = 2120.576 # Value needed to bring standard Cauchy up to 15.000007 at dd = 410.
+species = ['Rabbiteye', 'Southern highbush']
+
+# Variables for host availability
+re_duration = 70.5 # width of distribuion for rabbiteye host avalability
+shb_duration = 84 # width of distribuion for southern highbush host avalability
+amp = 0.5 # Amplitude of non-crop mid and late season hosts
+adj = 0.5 # Y-axis adjust for non-crop mid and late season hosts
+non_crop_center = 167 # 167 looks good; for non-crop mid and late season hosts
+early_amplitude = 0.40 # 0.4 looks good, also .45; for early non-crop hosts
+early_center = 40 # 40 looks good, also 40; for early non-crop hosts
+early_sigma = 23 # 23 looks good, also 20; for early non-crop hosts
+
+# The following parameters can be varied to range-find appropriate values and conduct sensitivity analyses.
+non_crop_adjust = 0.3 # Scalar to adjust proportion of non-crop hosts relative to crop hosts
+crop_amp = 1 # Scalar to adjust amplitude of crop host availability
+fecundity_scalar = 1 # Scalar value to adjust proportion fecundity of Cauchy function (age-based fecundity)
+attack_rate = 2 # 'Attack rate' of SWD females on hosts
+carrying_capacity =  10000# Carrying capacity per host availability
+host_reference = 'actual' # Toggles host abundance from 'actual' to 'relative'
+temp_fecundity_center = 21 # 21 is validated temperature center from Tochen et al. (2014)'s data
+repro_low = 13.4 # 13.4 from Wiman
+repro_high = 29.3 # 29.3 from Wiman
+
+def accumulate_dd(min_temp, max_temp, lower_limit, upper_limit): # This functions determines
+# the degree days generated in each day, based on a sine function that uses max and min
+# temps to simulate temperature fluctuations throughout the day. If the temperature at a given
+# hour is above the upper_limit, the upper_limit is used to accumulate degree hours. If the temperature
+# at any given hour is belor the lower_limit, no ddegree hours are accumulated. The function sums the degree
+# hours throughout the day to determine the degree days acumulated for any given day, and returns that value
+# to be used when this function is called by other operations.
+    daily_amplitude = (max_temp - min_temp)/2
+    daily_avg = (max_temp + min_temp)/2
+    hourly_temp = []
+    hourly_dd = []
+    daily_dd = 0
+    for j in range(24):
+        temp_t = daily_avg + (daily_amplitude * math.sin(2 *  math.pi * (j - 12)/ 24))
+        hourly_temp.append(temp_t)
+        if lower_limit <= temp_t and temp_t <= upper_limit:
+            deg_hour = (temp_t - lower_limit)/24
+            hourly_dd.append(deg_hour)
+            daily_dd = daily_dd + deg_hour
+        elif temp_t > upper_limit:
+            deg_hour = upper_limit / 24
+            hourly_dd.append(deg_hour)
+            daily_dd = daily_dd + deg_hour
+        else:
+            hourly_dd.append(0)
+    return(daily_dd)
+
+# This 'for loop' uses Temp data from Tifton, GA to calculate estimated average DDs (base 10C)
+# to 50% fruit in southern highbush and rabbiteye blueberries.
+for i in range(len(yrs)):
+    fruit_lower_threshold = 10
+    fruit_upper_threshold = math.inf
+    dd_counter = 0
+    min_ = 'minC' + str(yrs[i])
+    max_ = 'maxC' + str(yrs[i])
+    for j in range(len(df_fruit[str(min_)])):
+        dd = accumulate_dd(df_fruit[str(min_)][j], df_fruit[str(max_)][j], fruit_lower_threshold, fruit_upper_threshold)
+        degree_days[i].append(dd)
+        dd_counter = dd_counter + dd
+        cumulative_dds[i].append(dd_counter)
+        for k in range(len(flower_peak)):
+            peak_flower = round(flower_peak[k][i])
+            peak_fruit = round(fruit_peak[k][i])
+            if j == peak_flower:
+                dds_peak_flower[k].append(dd_counter)
+            if j == peak_fruit:
+                dds_peak_fruit[k].append(dd_counter)
+
+# This 'for loop' uses the results of the previous 'for loop' to calculate
+# the avearge dds to peak fruit for both rabbiteye and southern highbush
+for n in range(len(dds_peak_fruit)):
+    peak = 0
+    instances = len(dds_peak_fruit[n])
+    for o in range(len(dds_peak_fruit[n])):
+        peak = peak + dds_peak_fruit[n][o]
+    avg_dd = peak / instances
+    avg_dds_peak_fruit.append(avg_dd)
+
+# The following block of code assigns the day of peak fruit for both rabbiteye and s. highbush
+# to the days of each year in the model's temperature dataset; This info will be used to center
+# the distribution of crop hosts on the correct day for each year to produce the crop host availability per day.
+dds = 0
+for m in range(len(max_temps)):
+    dds += accumulate_dd(min_temps[m], max_temps[m], fruit_lower_threshold, fruit_upper_threshold)
+    seasonal_dds.append(dds)
+    if day_of_year[m] == 1:
+        dds = 0
+for l in range(len(seasonal_dds)):
+    for o in range(len(avg_dds_peak_fruit)):
+        if seasonal_dds[l - 1] < avg_dds_peak_fruit[o] < seasonal_dds[l]:
+            centers[o].append(day_of_year[l])
+for p in range(len(unique_yrs)):
+    for q in range(len(years)):
+        for r in range(len(centers)):
+            if years[q] == unique_yrs[p]:
+                if r == 0:
+                    rabbiteye_centers.append(centers[r][p])
+                if r == 1:
+                    s_highbush_centers.append(centers[r][p])
+
+def surv(dd): #this function returns probability survival accorting to the
+    # value of the index in 'vector_dds'.
+    surv = np.exp((-rate / shape) * (np.exp(shape * dd) - 1))
+    return(surv)
+
+def fecundity(dd): # this function returns fecundity
+    # of a female at physiological age based on the value at the index of 'vector_dds'; approximates Fig. 2 in Wiman et al. (2016).
+    eggs = fecundity_scalar * cauchy_constant / (cauchy_scale * math.pi * (1 + ((dd - cauchy_loc) / cauchy_scale) ** 2))
+    return(eggs)
+
+def temp_fecundity(temp, center = temp_fecundity_center, height = 1, sigma = 5): # this function returns proportion
+    # theoretical fecundity as a function of temperature
+    variance = sigma ** (2)
+    temp_fecundity_prop = 1 # height * math.exp(-((temp - center) ** 2)/(2 * variance))
+    return(temp_fecundity_prop)
+
+def all_hosts(i, height = crop_amp, adjust = adj, amplitude = amp): # This function calculates total host
+# availability, including rabbiteye and shouthern highbush crop hosts, and non-crop hosts. The peak hosts values in each
+# season are used to scale total hosts so that highest value each year is 1.
+    x = day_of_year[i]
+    re_sigma = re_duration / 4
+    shb_sigma = shb_duration / 4
+    non_crop_normal = adjust + amplitude * math.sin(2 *  math.pi * (x - non_crop_center)/ 365) # non-crop mid and late season hosts dist
+    early_variance = early_sigma ** (2) # variance for early non-crop hosts
+    early_noncrop_hosts = (early_amplitude* math.exp(-((x - early_center) ** 2)/(2 * early_variance))) # early non-crop hosts
+    all_noncrop = non_crop_adjust * (non_crop_normal + early_noncrop_hosts) # total noncrop hosts for day x
+    re = height * math.exp(-((x - rabbiteye_centers[i]) ** 2) / (2 * (re_sigma ** 2)))
+    shb = height * math.exp(-((x - s_highbush_centers[i]) ** 2) / (2 * (shb_sigma ** 2)))
+    crop_hosts = re + shb
+    total_hosts = (all_noncrop + crop_hosts)
+    return(total_hosts)
+
+def adjusted_hosts(i): # This function describes
+# the relative abundance of hsots each year. The maxiumum value each year is 1.
+    rltv_hosts = (unadjusted_hosts[i]) / max_hosts
+    return(rltv_hosts)
+
+for i in range(len(temp_dates)):
+    total_hosts = all_hosts(i)
+    unadjusted_hosts.append(total_hosts)
+max_hosts = max(unadjusted_hosts)
+for i in range(len(temp_dates)):
+    adj_hosts = adjusted_hosts(i)
+    relative_hosts.append(adj_hosts)
+
+def daily_vector():
+    for i in range(len(max_temps)):# This loop generates eggs, produces probability 
+    # of survival, and removal due to dd_death, for each day. All list/array indexes
+    # are syncronized and functions are tied to the values at each index 
+    # in the array 'vector_dds', which indicates the accumulated degree days for each cohort.
+    # Each cohort is represented by it's location (index) in various arrays.
+    # Taken together, the information at any given index in all of the arrays/vectors will describe a 
+    # cohort, specifying information on initial cohort size, current size, and accumulated degree days,
+    # in 'initial_cohort_size', 'pop_vector', and 'vector_dds', respectively. This function iterates
+    # through the days for which data are listed in the temperature arrays at the begining of the code.
+        global vector_dds, pop_vector, initial_cohort_size, total_pop, log_total, pop_proportions, neweggs
+        index = []
+        surv_vector = []
+        eggs = 0 # a counter that sets the eggs produced each day to zero
+        if host_reference == 'actual':
+            host_avail = unadjusted_hosts[i] # provides a host availability adjustment
+        if host_reference == 'relative':
+            host_avail = relative_hosts[i]
+        tf = temp_fecundity(avg_temps[i])
+        immatures = 0
+        host_swd_interaction = (attack_rate * host_avail) / (1 + attack_rate * host_avail)
+        for j in range(len(vector_dds)):
+            if vector_dds[j] < pupae_dds:
+                immatures += pop_vector[j]
+            else:
+                continue
+        density_fecundity = 1 - (immatures / (carrying_capacity * host_avail))
+        for j in range(len(vector_dds)):
+            if vector_dds[j] >= repro_dds: # and repro_low <= avg_temps[i] <= repro_high: # this loop 
+            # generates eggs for each cohort as long as the conditions are met: accumulated dds for 
+            # that cohort is at least 210 AND the daily average falls within the range of 
+            # the reproductive thresholds. Eggs for a cohort are produced according to the fecundity function,
+            # driven by dds of that cohort.            
+                max_eggs = pop_vector[j] * fecundity(vector_dds[j]) # Theoretical maximum eggs produced by a cohort
+                fecundity_mods = tf * host_swd_interaction * density_fecundity # Modifications to fecundity
+                new_eggs = 0.5 * fecundity_mods * max_eggs # assumes sex ratio is 50% female; actual eggs produced by each cohort (realized fecundity)
+                eggs += np.round(new_eggs) # counter that adds the number of eggs from each cohort
+            else:
+                continue
+        host_change.append(host_avail - unadjusted_hosts[i - 1])    
+        # This line of code updates the population and degree day arrays/vectors for a new cohort.
+        pop_vector = np.concatenate([[eggs], pop_vector])
+        initial_cohort_size = np.concatenate([[eggs], initial_cohort_size])
+        vector_dds = np.concatenate([[0], vector_dds])  
+        neweggs.append(eggs)
+        
+        ''' The folowing four lines of code are counters for the life stages in
+            the population at each day. ''' 
+        eggses = 0
+        larvae = 0 
+        pupae = 0 
+        adults = 0 
+        for m in range(len(vector_dds)): # This loop partitions the cohorts in 'pop_vector' into
+        # life stages according to the accumulated dds for each cohort, corresponding to the synchronized 
+        # indices with 'vector_dds'.
+            if vector_dds[m] <= egg_dds:
+                eggses += pop_vector[m]
+            if egg_dds < vector_dds[m] <= larvae_dds:
+                larvae += pop_vector[m]
+            if larvae_dds < vector_dds[m] <= pupae_dds:
+                pupae += pop_vector[m]
+            if pupae_dds < vector_dds[m]:
+                adults += pop_vector[m]
+        total = eggses + larvae + pupae + adults
+        ln_total = np.log(total + 1)
+        total_pop.append(total)
+        log_total.append(ln_total)
+        structured_pop[0].append(eggses)
+        structured_pop[1].append(larvae)
+        structured_pop[2].append(pupae)
+        structured_pop[3].append(adults)
+
+        vector_dds = vector_dds + accumulate_dd(min_temps[i], max_temps[i], t_low, t_high) # this line
+        # adds the degree days accumulated for this day to all the cohort dds in the array 'vector_dds'.
+        for k in range(len(vector_dds)): # This loop calculates probability of survival to the accumulated
+        # dds for each cohort.
+            surv_vector.append(surv(vector_dds[k]))    
+        pop_vector = np.round(np.multiply(initial_cohort_size, surv_vector)) # This line reduces survival
+        # for each cohort as determined by the total dds accumulated for that cohort.
+        for l in range(len(vector_dds)): # This loop identifies any cohorts that have
+        # reached or exceeded degree-day death (dd_death).
+            if vector_dds[l] > dd_death:
+                index.append([l])
+        vector_dds = np.delete(vector_dds, index)
+        pop_vector = np.delete(pop_vector, index)
+        initial_cohort_size = np.delete(initial_cohort_size, index)
+
+        prop_eggs = eggses / total
+        prop_larvae = larvae / total
+        prop_pupae = pupae / total
+        prop_adults = adults / total
+        proportions = [prop_eggs, prop_larvae, prop_pupae, prop_adults]
+        pop_proportions.append(proportions)
+        eggs2adults.append(eggs / adults)
+        eggses2adults.append(eggses / adults)
+    
+daily_vector() # This line of code executes the function 'daily_vector' to run the simulation.
+
+str_pop_array = np.array(structured_pop)
+log_str = np.log(str_pop_array + 1)
+plt.figure(dpi = 700)
+
+why = [item[0] for item in pop_proportions]
+wont = [item[1] for item in pop_proportions]
+it = [item[2] for item in pop_proportions]
+work = [item[3] for item in pop_proportions]
+
+
+prop_df = pd.DataFrame(list(zip(temp_dates, why, wont, it, work)),
+                       columns = ['Date', 'Eggs', 'Larvae', 'Pupae', 'Adults'])
+''' This code produces a datafram by extracting the proporions of each life stage
+from the list 'pop_proportions'. '''
+
+# The following lines of code extract proprotions for each life stage during the catch trap period
+# and cast them it arrays.
+#range_start = 0
+#range_end = 365
+
+range_start = first_2015
+range_end = first_2018
+
+prop_dates = np.array(temp_dates[range_start:range_end])
+graph_why = np.array(why[range_start:range_end])
+graph_wont = np.array(wont[range_start:range_end])
+graph_it = np.array(it[range_start:range_end])
+graph_work = np.array(work[range_start:range_end])
+adults_2_eggs = graph_work / graph_why
+eggs_2_adults = graph_why / graph_work
+
+plt.rcParams['axes.labelsize'] = 30 # font size for graph axes labels
+axis_maarkers = 20 # Font size for axis markers and legend fontsize
+tite_size = 24 # Font size for titles of graphs
+line_width = 4
+
+fig, ax1 = plt.subplots() # plots expected SWD population levels from 2015-2018 against avg. catch trap data 
+# with an overlay of avg. daily temp. Avg. atch trap and temp share the right-side Y-axis.
+ax1.set_xlabel('Date')
+ax1.set_ylabel('# of individuals')
+ax1.plot(df['Date'][first_2015:first_2018], total_pop[first_2015:first_2018], linewidth = line_width, linestyle = 'solid', color = 'black', label = 'Total population size', zorder = 3)
+ax1.legend(bbox_to_anchor=(0.5, 1.15), loc='upper center', borderaxespad=0., frameon = False, fontsize = axis_maarkers)
+ax1.tick_params(axis = 'x', labelrotation = 45, labelsize = axis_maarkers)
+ax1.tick_params(axis = 'y', labelcolor = 'black', color = 'black', labelsize = axis_maarkers)
+#ax1.set_ylim(0, 2500)
+ax1.spines['top'].set_visible(False)
+ax2 = ax1.twinx()
+ax2.set_ylabel('Trap counts and temp(C)')
+ax2.yaxis.set_label_coords(1.1, 0.33)
+ax2.plot(catch_dates, avg, linewidth = line_width, color = 'grey', label = 'Avg. SWD per trap', zorder = 1)
+ax2.plot(df['Date'][first_2015:first_2018], avg_temps[first_2015:first_2018], linewidth = 0.5, color = 'black', label = 'Avg. daily temp.', zorder = 4)
+#ax2.axhline(y = repro_low, label = 'Min reproductive temp', linewidth = 1.5, color  = 'grey', linestyle = 'dotted')
+#ax2.axhline(y = repro_high, label = 'Max reproductive temp', linewidth = 1.5, color = 'grey', linestyle = 'dashed')
+ax2.legend(bbox_to_anchor=(0.5, -0.4), loc='upper center', borderaxespad=0., frameon = False, fontsize = axis_maarkers, ncol = 2)
+ax2.tick_params(axis = 'y', labelcolor = 'grey', color = 'grey', labelsize = axis_maarkers)
+ax2.set_ylim(-5, 90)
+ax2.spines['right'].set_color('grey')
+ax2.spines['left'].set_color('black')
+ax2.spines['right'].set_visible(True)
+ax2.spines['top'].set_visible(False)
+#plt.title('Carrying Capacity=' + str(carrying_capacity) + ', hosts=' + str(host_reference), fontsize = tite_size)
+#plt.savefig(r'<figure save path>\Fig. 4A.png', format  = 'png', dpi = 500, bbox_inches = 'tight')
+plt.show()
+
+fig, ax1 = plt.subplots() # this code plots a proportion graph of stacked bars for each lifestage
+ax1.set_xlabel('Date')
+ax1.set_ylabel('Proportion')
+ax1.bar(prop_dates, graph_why, width = 1.0, label = 'Eggs', color = 'dimgrey') 
+ax1.bar(prop_dates, graph_wont, width = 1.0, bottom = graph_why, label = 'Larvae',color = 'darkgrey')
+ax1.bar(prop_dates, graph_it, width = 1.0, bottom  = graph_why + graph_wont, label = 'Pupae', color = 'gainsboro')
+ax1.bar(prop_dates, graph_work, width = 1.0, bottom = graph_why + graph_wont + graph_it, label = 'Adults', color = 'white')
+ax1.plot(df['Date'][range_start:range_end], relative_hosts[range_start:range_end], linewidth = 2, color = 'black', linestyle = 'solid', label = 'Host abundance')
+ax1.tick_params(axis = 'x', labelrotation = 45, labelsize = axis_maarkers)
+ax1.tick_params(axis = 'y', labelsize = axis_maarkers)
+ax1.legend(bbox_to_anchor=(0.5, 1.35), loc='upper center', borderaxespad=0., frameon = False, fontsize = axis_maarkers, ncol = 2)
+ax1.spines['top'].set_visible(False)
+#ax2 = ax1.twinx()
+#ax2.plot(df['Date'][range_start:range_end], avg_temps[range_start:range_end], linewidth = 1, color = 'grey', label = 'Avg. daily temp.', zorder = 0)
+#ax2.set_ylabel('Temperature (C)')
+#ax2.axhline(y = repro_low, label = 'Min reproductive temp', linewidth = 1.5, color  = 'grey', linestyle = 'dotted')
+#ax2.axhline(y = repro_high, label = 'Max reproductive temp', linewidth = 1.5, color = 'grey', linestyle = 'dashed')
+#ax2.legend(bbox_to_anchor=(1.15, 0.6), loc='upper left', fontsize = axis_maarkers)
+#ax2.tick_params( axis = 'y', labelcolor = 'grey', color = 'grey', labelsize = axis_maarkers)
+#ax2.set_ylim(-5, 35)
+#ax2.spines['right'].set_color('grey')
+#ax2.spines['right'].set_visible(True)
+#plt.title('Carrying Capacity=' + str(carrying_capacity) + ', hosts=' + str(host_reference), fontsize = tite_size)
+#plt.savefig(r'<figure save path>\Fig. 4B.png', format  = 'png', dpi = 500, bbox_inches = 'tight')
+plt.show()
+
+df1 = pd.DataFrame(temp_dates[first_2015:first_2018])
+df1.columns = ['Date']
+df1['Population size'] = pd.Series(total_pop[first_2015:first_2018])
+
+df3 = pd.merge(df1, catch, on = 'Date', how = 'inner')
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+filepath = '<Save path>/No temp restrictions{}.csv'.format(timestamp)
+#df3.to_csv(filepath, index=False)
+
+print(total_pop[-1])
+print('Last day in temperature data: ' + str(temp_dates[-1]))
+end_time = time.time() # Stops the time.
+computation_time = round((end_time - start_time), 5) # calculates computational time
+print('Computational time was ' + str(computation_time) + ' seconds.') # prints computational time
