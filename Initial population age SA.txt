@@ -48,7 +48,7 @@ unique_yrs = [] # Indecies are synchronized with 'centers', the list of 50% frui
 first_2015 = years.index(2015) # Locates index of the first date in 2015 in the dataset.
 first_2018 = years.index(2018) # Locates index of the first date in 2018 in the dataset.
 
-df_fruit = pd.read_excel(r'<File path>\Phenology.data.23.24 JM 2025-6-16.xlsx', sheet_name = 'Alapaha temps')
+df_fruit = pd.read_excel(r'<File path>\Alapaha temps.csv')
 # The previsous line of code reads temps from Tifton, GA in 2023 and 2024 for use in estimating average dds (base 10C)
 # to 50% fruit for southern highbush and rabbiteye blueberries.
 
