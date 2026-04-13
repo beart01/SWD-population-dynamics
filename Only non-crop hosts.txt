@@ -14,7 +14,7 @@ from datetime import datetime
 
 start_time = time.time() # starts a timer to calculate computation time.
 
-df = pd.read_excel(r'<File path>\Temp profiles JM 2025-2-11.xlsx', sheet_name = 'Daily 15-17')
+df = pd.read_excel(r'<File path>\Temp profiles.csv')
 df.columns = ['Date', 'MaxF', 'MinF', 'AvgF', 'MaxC', 'MinC', 'AvgC']
 ''' these lines of code extract daily max, min, and other stuff from an excel spreadsheet, into a dataframe. ''' 
 
@@ -23,7 +23,7 @@ max_temps = np.array(df['MaxC'].values) # casts daily max temps to an array
 min_temps = np.array(df['MinC'].values) # casts daily min temps to an array
 avg_temps = np.array(df['AvgC'].values) # casts daily avg temps to an array
 
-catch = pd.read_excel(r'<File path>\avg catch data by date 2015-2018.xlsx', sheet_name = 'AVG_GRAPHS')
+catch = pd.read_excel(r'<File path>\avg catch data by date 2015-2018.csv')
 catch.columns = ['Date', 'Freq', 'avg', 'error', 'lower', 'upper']
 # these lines of code extract average catch data over all habitat types for each sample day from an excel file and
 # generates a dataframe, 'catch', to store the data.
@@ -48,7 +48,7 @@ unique_yrs = [] # Indecies are synchronized with 'centers', the list of 50% frui
 first_2015 = years.index(2015) # Locates index of the first date in 2015 in the dataset.
 first_2018 = years.index(2018) # Locates index of the first date in 2018 in the dataset.
 
-df_fruit = pd.read_excel(r'<File path>\Phenology.data.23.24 JM 2025-6-16.xlsx', sheet_name = 'Alapaha temps')
+df_fruit = pd.read_excel(r'<File path>\Alapaha temps.csv')
 # The previsous line of code reads temps from Tifton, GA in 2023 and 2024 for use in estimating average dds (base 10C)
 # to 50% fruit for southern highbush and rabbiteye blueberries.
 #
